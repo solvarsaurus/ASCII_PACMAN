@@ -67,7 +67,7 @@ const char* hostPage PROGMEM = R"=====(
   const ctx = canvas.getContext('2d');
   const ts = 10;
   let score = 0, highScore = 0, level = 1, gameSpeed = 150;
-  let pelletsRemaining = 0, gameOver = false, powerTimer = 0, isPaused = true;
+  let pelletsRemaining = 0, gameOver = false, powerTimer = 0, isPaused = true, mouthFrame = 0;
 
   const mazeTemplate = [
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
@@ -95,7 +95,11 @@ const char* hostPage PROGMEM = R"=====(
 
   let maze = JSON.parse(JSON.stringify(mazeTemplate));
   let player = { x: 10, y: 15, curDir: null };
-  let blinky = { x: 9, y: 8, isFrightened: false };
+  let ghosts = [
+    { x: 9, y: 8, isFrightened: false },
+    { x: 8, y: 9, isFrightened: false },
+    { x: 10, y: 9, isFrightened: false }
+  ];
 
   function startGame() {
     document.getElementById('splash-view').classList.add('hidden');
@@ -122,6 +126,7 @@ const char* hostPage PROGMEM = R"=====(
     if(player.curDir == 38) ty--; else if(player.curDir == 40) ty++;
     if(player.curDir == 37) tx--; else if(player.curDir == 39) tx++;
 
+    tx = (tx + 20) % 20; ty = (ty + 21) % 21;
     if(maze[ty] && maze[ty][tx] !== 1) {
       player.x = tx; player.y = ty;
       if(maze[ty][tx] === 2 || maze[ty][tx] === 3) {
@@ -132,23 +137,25 @@ const char* hostPage PROGMEM = R"=====(
            document.getElementById('lvlNum').innerText = level;
            maze = JSON.parse(JSON.stringify(mazeTemplate));
            player = { x: 10, y: 15, curDir: null };
+           ghosts = [{x:9,y:8},{x:8,y:9},{x:10,y:9}];
            gameSpeed = Math.max(60, 150 - (level * 15));
         }
         updateStatus();
       }
     }
 
-    let bx = blinky.x, by = blinky.y;
-    let ops = [{x:bx, y:by-1}, {x:bx, y:by+1}, {x:bx-1, y:by}, {x:bx+1, y:by}];
-    let valid = ops.filter(o => maze[o.y] && maze[o.y][o.x] !== 1);
-    let mult = (powerTimer > 0) ? -1 : 1;
-    valid.sort((a,b) => mult * (Math.sqrt((a.x-player.x)**2+(a.y-player.y)**2) - Math.sqrt((b.x-player.x)**2+(b.y-player.y)**2)));
-    if(valid[0]) { blinky.x = valid[0].x; blinky.y = valid[0].y; }
-
-    if(blinky.x === player.x && blinky.y === player.y) {
-      if(powerTimer > 0) { blinky.x = 9; blinky.y = 8; score += 200; }
-      else { gameOver = true; if(score > highScore) fetch('/api/setscore?score='+score, {method:'POST'}); updateStatus(); }
-    }
+    ghosts.forEach((ghost, idx) => {
+      let ops = [{x:ghost.x, y:ghost.y-1}, {x:ghost.x, y:ghost.y+1}, {x:ghost.x-1, y:ghost.y}, {x:ghost.x+1, y:ghost.y}];
+      ops = ops.map(o => ({x:(o.x+20)%20, y:(o.y+21)%21}));
+      let valid = ops.filter(o => maze[o.y] && maze[o.y][o.x] !== 1);
+      let mult = (powerTimer > 0) ? -1 : 1;
+      valid.sort((a,b) => mult * (Math.sqrt((a.x-player.x)**2+(a.y-player.y)**2) - Math.sqrt((b.x-player.x)**2+(b.y-player.y)**2)));
+      if(valid[0]) { ghost.x = valid[0].x; ghost.y = valid[0].y; }
+      if(ghost.x === player.x && ghost.y === player.y) {
+        if(powerTimer > 0) { ghost.x = [9,8,10][idx]; ghost.y = [8,9,9][idx]; score += 200; }
+        else { gameOver = true; if(score > highScore) fetch('/api/setscore?score='+score, {method:'POST'}); updateStatus(); }
+      }
+    });
   }
 
   function draw() {
@@ -161,8 +168,12 @@ const char* hostPage PROGMEM = R"=====(
       }
     }
     ctx.fillStyle = "#33ff00"; ctx.beginPath(); ctx.arc(player.x*ts+5, player.y*ts+5, 4, 0, 2*Math.PI); ctx.fill();
+    let mouthAngle = Math.abs(Math.sin(mouthFrame * 0.1)) * 0.4;
+    ctx.fillStyle = "#000"; ctx.beginPath(); ctx.moveTo(player.x*ts+5, player.y*ts+5);
+    ctx.arc(player.x*ts+5, player.y*ts+5, 4, mouthAngle, 2*Math.PI - mouthAngle); ctx.fill();
+    mouthFrame++;
     ctx.strokeStyle = "#33ff00"; ctx.lineWidth = (powerTimer > 0 ? 1 : 3);
-    ctx.beginPath(); ctx.arc(blinky.x*ts+5, blinky.y*ts+5, 4, 0, 2*Math.PI); ctx.stroke();
+    ghosts.forEach(ghost => { ctx.beginPath(); ctx.arc(ghost.x*ts+5, ghost.y*ts+5, 4, 0, 2*Math.PI); ctx.stroke(); });
     update();
     setTimeout(() => requestAnimationFrame(draw), gameSpeed);
   }
